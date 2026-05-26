@@ -61,19 +61,22 @@
     const audioKizginlik   = new Audio('kizginlik.m4a');
     const audioOlumsuz     = new Audio('olumsuzBap.m4a');
 
-    // All audios for "is anything playing?" check
+    // All audios list (for stopAllAudio)
     const allAudios = [...faceAudios, ...drinkAudios, audioHosgeldiniz, audioKizginlik, audioOlumsuz];
 
+    // Event-driven talking flag — set true on play, false immediately on ended
+    let talkingActive = false;
+
+    function playWithTalking(audio) {
+        talkingActive = true;
+        audio.currentTime = 0;
+        audio.addEventListener('ended', () => { talkingActive = false; }, { once: true });
+        audio.play().catch(e => console.log(e));
+    }
+
     function stopAllAudio() {
+        talkingActive = false;
         allAudios.forEach(a => { a.pause(); a.currentTime = 0; });
-    }
-
-    function isAudioPlaying(audio) {
-        return !audio.paused && !audio.ended;
-    }
-
-    function isAnyAudioPlaying() {
-        return allAudios.some(a => isAudioPlaying(a));
     }
 
     // --- INTRO ---
@@ -83,6 +86,8 @@
     startBtn.addEventListener('click', () => {
         introScreen.style.opacity = '0';
         setTimeout(() => { introScreen.style.display = 'none'; }, 500);
+        audioHosgeldiniz.currentTime = 0;
+        audioHosgeldiniz.play().catch(e => console.log(e));
     });
 
     // --- IMAGE LOADING ---
@@ -251,10 +256,9 @@
             requestAnimationFrame(loop);
             if (isAnimating) return;
 
-            const angryPlaying = isAudioPlaying(audioKizginlik);
-            const sadPlaying   = isAudioPlaying(audioOlumsuz);
-            const anyPlaying   = isAnyAudioPlaying();
-            const talking      = anyPlaying;
+            const angryPlaying = talkingActive && !audioKizginlik.paused && !audioKizginlik.ended;
+            const sadPlaying   = talkingActive && !audioOlumsuz.paused && !audioOlumsuz.ended;
+            const talking      = talkingActive;
 
             let needsUpdate = false;
 
@@ -316,8 +320,7 @@
     function playFaceSound() {
         stopAllAudio();
         const audio = faceAudios[Math.floor(Math.random() * faceAudios.length)];
-        audio.currentTime = 0;
-        audio.play().catch(e => console.log(e));
+        playWithTalking(audio);
     }
 
     function playDrinkAnimation() {
@@ -326,8 +329,7 @@
 
         stopAllAudio();
         const audio = drinkAudios[Math.floor(Math.random() * drinkAudios.length)];
-        audio.currentTime = 0;
-        audio.play().catch(e => console.log(e));
+        playWithTalking(audio);
 
         ctx.putImageData(dataDrink, 0, 0);
 
@@ -344,8 +346,7 @@
         isAnimating = true;
 
         stopAllAudio();
-        audioHosgeldiniz.currentTime = 0;
-        audioHosgeldiniz.play().catch(e => console.log(e));
+        playWithTalking(audioHosgeldiniz);
 
         ctx.putImageData(dataPour, 0, 0);
 
@@ -362,14 +363,12 @@
 
     function playAngryAnimation() {
         stopAllAudio();
-        audioKizginlik.currentTime = 0;
-        audioKizginlik.play().catch(e => console.log(e));
+        playWithTalking(audioKizginlik);
     }
 
     function playSadAnimation() {
         stopAllAudio();
-        audioOlumsuz.currentTime = 0;
-        audioOlumsuz.play().catch(e => console.log(e));
+        playWithTalking(audioOlumsuz);
     }
 
     // --- CLICK / TOUCH HANDLER ---
