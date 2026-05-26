@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bap.</title>
+    <link rel="icon" type="image/png" href="assets/browserLogo.png">
+    <style>
+        body, html { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background-color: #000; font-family: 'Segoe UI', Tahoma, sans-serif; user-select: none; touch-action: none; -webkit-user-select: none; }
+        #bg-layer { position: absolute; z-index: 1; width: 100%; height: 100%; background-image: url('assets/background.png'); background-size: cover; background-position: center 70%; image-rendering: pixelated; }
+        #game-canvas { position: absolute; z-index: 2; height: 80vh; width: 100vw; max-width: 100vw; bottom: -2vh; left: 50%; transform: translateX(-50%); object-fit: contain; object-position: bottom center; image-rendering: pixelated; cursor: pointer; touch-action: none; }
+
+        #intro-screen {
+            position: absolute; z-index: 10; top: 0; left: 0; width: 100vw; height: 100vh;
+            background-color: #111; display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: white; text-align: center; padding: 20px; box-sizing: border-box; transition: opacity 0.5s ease-out;
+        }
+        #intro-screen h1 {
+            font-size: 2.5rem; margin-bottom: 3rem; font-family: 'Courier New', Courier, monospace;
+            text-shadow: 3px 3px 0px #FF00FF, -3px -3px 0px #00FFFF; max-width: 800px; line-height: 1.4;
+        }
+        #start-btn {
+            padding: 15px 50px; font-size: 2rem; font-weight: bold; background-color: #FF00FF; color: #FFF;
+            border: 4px solid #FFF; cursor: pointer; text-transform: uppercase; font-family: 'Courier New', Courier, monospace;
+            box-shadow: 6px 6px 0px #00FFFF; transition: transform 0.1s, box-shadow 0.1s;
+        }
+        #start-btn:active { transform: translate(6px, 6px); box-shadow: 0px 0px 0px #00FFFF; }
+
+        @media (max-width: 768px) {
+            #intro-screen h1 { font-size: 1.5rem; text-shadow: 2px 2px 0px #FF00FF, -2px -2px 0px #00FFFF; margin-bottom: 2rem; }
+            #start-btn { padding: 12px 30px; font-size: 1.5rem; box-shadow: 4px 4px 0px #00FFFF; }
+            #start-btn:active { transform: translate(4px, 4px); }
+            #game-canvas { height: 90vh; bottom: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div id="intro-screen">
+        <h1>Bap babap bap bap barabap bap bap barabbbappap.</h1>
+        <button id="start-btn">Bap.</button>
+    </div>
+
+    <div id="bg-layer"></div>
+    <canvas id="game-canvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    // --- AUDIO SETUP ---
+    // Face click sounds (randomized: babap, bap, merakliBap)
+    const faceAudioFiles = ['babap.m4a', 'bap.m4a', 'merakliBap.m4a'];
+    const faceAudios = faceAudioFiles.map(f => new Audio(f));
+
+    // Drink sounds (randomized: neseliBap or yoruyelim)
+    const drinkAudioFiles = ['neseliBap.m4a', 'yoruyelim.m4a'];
+    const drinkAudios = drinkAudioFiles.map(f => new Audio(f));
+
+    // Dedicated action sounds
+    const audioHosgeldiniz = new Audio('hosgeldiniz.m4a');
+    const audioKizginlik   = new Audio('kizginlik.m4a');
+    const audioOlumsuz     = new Audio('olumsuzBap.m4a');
+
+    // All audios for "is anything playing?" check
+    const allAudios = [...faceAudios, ...drinkAudios, audioHosgeldiniz, audioKizginlik, audioOlumsuz];
+
+    function stopAllAudio() {
+        allAudios.forEach(a => { a.pause(); a.currentTime = 0; });
+    }
+
+    function isAudioPlaying(audio) {
+        return !audio.paused && !audio.ended;
+    }
+
+    function isAnyAudioPlaying() {
+        return allAudios.some(a => isAudioPlaying(a));
+    }
+
+    // --- INTRO ---
+    const introScreen = document.getElementById('intro-screen');
+    const startBtn    = document.getElementById('start-btn');
+
+    startBtn.addEventListener('click', () => {
+        introScreen.style.opacity = '0';
+        setTimeout(() => { introScreen.style.display = 'none'; }, 500);
+    });
+
+    // --- IMAGE LOADING ---
+    const imgIdle      = new Image();
+    const imgDrink     = new Image();
+    const imgPour      = new Image();
+    const imgHappyTalk = new Image();
+    const imgAngry     = new Image();
+    const imgAngryTalk = new Image();
+    const imgSad       = new Image();
+    const imgSadTalk   = new Image();
+
+    const totalImages = 8;
+    let imagesLoaded = 0;
+
+    // Pixel data cache
+    let dataIdle      = null;
+    let dataDrink     = null;
+    let dataPour      = null;
+    let dataHappyTalk = null;
+    let dataAngry     = null;
+    let dataAngryTalk = null;
+    let dataSad       = null;
+    let dataSadTalk   = null;
+
+    // --- GAME STATE ---
+    let beerLevel   = 1.0; // 1.0 = full, 0.667 = 2/3, 0.333 = 1/3, 0 = empty
+    let isAnimating = false;
+    let mugTop      = null;
+    let mugBottom   = null;
+
+    // --- TALKING ANIMATION STATE ---
+    let talkState = false;
+    let talkTimer = 0;
+
+    function removeMagenta(imgEl) {
+        const tmp = document.createElement('canvas');
+        tmp.width  = canvas.width;
+        tmp.height = canvas.height;
+        const tCtx = tmp.getContext('2d');
+        tCtx.drawImage(imgEl, 0, 0, canvas.width, canvas.height);
+        const data = tCtx.getImageData(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < data.data.length; i += 4) {
+            const r = data.data[i], g = data.data[i+1], b = data.data[i+2];
+            if (r > 130 && g < 120 && b > 130) data.data[i+3] = 0;
+        }
+        return data;
+    }
+
+    function checkLoad() {
+        imagesLoaded++;
+        if (imagesLoaded === totalImages) initGame();
+    }
+
+    imgIdle.onload      = checkLoad;
+    imgDrink.onload     = checkLoad;
+    imgPour.onload      = checkLoad;
+    imgHappyTalk.onload = checkLoad;
+    imgAngry.onload     = checkLoad;
+    imgAngryTalk.onload = checkLoad;
+    imgSad.onload       = checkLoad;
+    imgSadTalk.onload   = checkLoad;
+
+    const v = '?v=' + new Date().getTime();
+    imgIdle.src      = 'assets/retroDehan.png'      + v;
+    imgDrink.src     = 'assets/dehan_drink.png'     + v;
+    imgPour.src      = 'assets/dehan_pour.png'      + v;
+    imgHappyTalk.src = 'assets/dehan_happy_talk.png'+ v;
+    imgAngry.src     = 'assets/dehan_angry.png'     + v;
+    imgAngryTalk.src = 'assets/dehan_angry_talk.png'+ v;
+    imgSad.src       = 'assets/dehan_sad.png'       + v;
+    imgSadTalk.src   = 'assets/dehan_sad_talk.png'  + v;
+
+    function initGame() {
+        canvas.width  = imgIdle.width;
+        canvas.height = imgIdle.height;
+
+        dataIdle      = removeMagenta(imgIdle);
+        dataDrink     = removeMagenta(imgDrink);
+        dataPour      = removeMagenta(imgPour);
+        dataHappyTalk = removeMagenta(imgHappyTalk);
+        dataAngry     = removeMagenta(imgAngry);
+        dataAngryTalk = removeMagenta(imgAngryTalk);
+        dataSad       = removeMagenta(imgSad);
+        dataSadTalk   = removeMagenta(imgSadTalk);
+
+        // Draw initial idle frame
+        ctx.putImageData(dataIdle, 0, 0);
+
+        // Auto-detect mug position by finding beer-colored pixels
+        let bestX = 0, bestYMin = canvas.height, bestYMax = 0, maxScore = 0;
+        for (let x = Math.floor(canvas.width * 0.3); x < Math.floor(canvas.width * 0.7); x += 2) {
+            let colMinY = canvas.height, colMaxY = 0, score = 0;
+            for (let y = Math.floor(canvas.height * 0.5); y < Math.floor(canvas.height * 0.9); y++) {
+                const idx = (y * canvas.width + x) * 4;
+                const r = dataIdle.data[idx], g = dataIdle.data[idx+1], b = dataIdle.data[idx+2];
+                if (r > 130 && g > 80 && b < 100 && r > g + 10) {
+                    if (y < colMinY) colMinY = y;
+                    if (y > colMaxY) colMaxY = y;
+                    score++;
+                }
+            }
+            if (score > maxScore) { maxScore = score; bestYMax = colMaxY; bestYMin = colMinY; bestX = x; }
+        }
+
+        if (bestYMax - bestYMin > 20) {
+            mugTop    = { x: bestX, y: bestYMin };
+            mugBottom = { x: bestX, y: bestYMax };
+
+            let leftEdge  = bestX - 30;
+            let rightEdge = bestX + 30;
+            const checkY  = Math.floor((bestYMin + bestYMax) / 2);
+
+            for (let x = bestX; x > bestX - 100; x--) {
+                const idx = (checkY * canvas.width + x) * 4;
+                if (dataIdle.data[idx] < 60 && dataIdle.data[idx+1] < 60 && dataIdle.data[idx+2] < 60) { leftEdge = x; break; }
+            }
+            for (let x = bestX; x < bestX + 100; x++) {
+                const idx = (checkY * canvas.width + x) * 4;
+                if (dataIdle.data[idx] < 60 && dataIdle.data[idx+1] < 60 && dataIdle.data[idx+2] < 60) { rightEdge = x; break; }
+            }
+
+            mugTop.left  = leftEdge;
+            mugTop.right = rightEdge;
+        }
+
+        startAnimationLoop();
+    }
+
+    // --- RENDER: overlay empty beer on top of any base frame ---
+    function renderBeerLevel(baseData) {
+        if (!baseData) return;
+        const imgData = new Uint8ClampedArray(baseData.data);
+
+        if (beerLevel < 1.0 && mugTop && mugBottom && mugTop.left && mugTop.right) {
+            const liquidHeight  = mugBottom.y - mugTop.y;
+            const emptyHeight   = liquidHeight * (1 - beerLevel);
+            const currentLiquidY = mugTop.y + emptyHeight;
+
+            for (let y = mugTop.y; y < currentLiquidY; y++) {
+                for (let x = mugTop.left + 1; x < mugTop.right - 1; x++) {
+                    const idx = (y * canvas.width + x) * 4;
+                    const r = imgData[idx], g = imgData[idx+1], b = imgData[idx+2];
+                    if (r > 100 && g > 60 && b < 130 && r > b + 20) {
+                        const avg = (r + g + b) / 3;
+                        imgData[idx]   = Math.max(0, avg - 40);
+                        imgData[idx+1] = Math.max(0, avg - 40);
+                        imgData[idx+2] = Math.max(0, avg - 15);
+                        imgData[idx+3] = 255;
+                    }
+                }
+            }
+        }
+
+        ctx.putImageData(new ImageData(imgData, canvas.width, canvas.height), 0, 0);
+    }
+
+    // --- ANIMATION LOOP: drives mouth open/close based on audio ---
+    function startAnimationLoop() {
+        let lastFrame = null;
+
+        function loop() {
+            requestAnimationFrame(loop);
+            if (isAnimating) return;
+
+            const angryPlaying = isAudioPlaying(audioKizginlik);
+            const sadPlaying   = isAudioPlaying(audioOlumsuz);
+            const anyPlaying   = isAnyAudioPlaying();
+            const talking      = anyPlaying;
+
+            let needsUpdate = false;
+
+            if (talking) {
+                talkTimer++;
+                if (talkTimer > 4) {
+                    talkState = !talkState;
+                    talkTimer = 0;
+                    needsUpdate = true;
+                }
+            } else {
+                if (talkState) { talkState = false; needsUpdate = true; }
+                talkTimer = 0;
+            }
+
+            // Pick correct frame
+            let frame;
+            if (angryPlaying) {
+                frame = (talkState) ? dataAngryTalk : dataAngry;
+            } else if (sadPlaying) {
+                frame = (talkState) ? dataSadTalk : dataSad;
+            } else if (talking && talkState) {
+                frame = dataHappyTalk;
+            } else {
+                frame = dataIdle;
+            }
+
+            if (frame !== lastFrame || needsUpdate) {
+                lastFrame = frame;
+                renderBeerLevel(frame);
+            }
+        }
+        loop();
+    }
+
+    // --- COORDINATE HELPER ---
+    function getCanvasPos(e) {
+        const rect        = canvas.getBoundingClientRect();
+        const canvasRatio = canvas.width / canvas.height;
+        const rectRatio   = rect.width / rect.height;
+
+        let clientX = e.clientX, clientY = e.clientY;
+        if (e.touches && e.touches.length > 0)               { clientX = e.touches[0].clientX;        clientY = e.touches[0].clientY; }
+        else if (e.changedTouches && e.changedTouches.length > 0) { clientX = e.changedTouches[0].clientX; clientY = e.changedTouches[0].clientY; }
+
+        let actualWidth = rect.width, actualHeight = rect.height, offsetX = 0, offsetY = 0;
+        if (canvasRatio > rectRatio) { actualHeight = rect.width / canvasRatio; offsetY = rect.height - actualHeight; }
+        else                         { actualWidth  = rect.height * canvasRatio; offsetX = (rect.width - actualWidth) / 2; }
+
+        return {
+            x: Math.round((clientX - rect.left - offsetX) * (canvas.width  / actualWidth)),
+            y: Math.round((clientY - rect.top  - offsetY) * (canvas.height / actualHeight))
+        };
+    }
+
+    // --- ACTIONS ---
+    function playFaceSound() {
+        stopAllAudio();
+        const audio = faceAudios[Math.floor(Math.random() * faceAudios.length)];
+        audio.currentTime = 0;
+        audio.play().catch(e => console.log(e));
+    }
+
+    function playDrinkAnimation() {
+        if (isAnimating) return;
+        isAnimating = true;
+
+        stopAllAudio();
+        const audio = drinkAudios[Math.floor(Math.random() * drinkAudios.length)];
+        audio.currentTime = 0;
+        audio.play().catch(e => console.log(e));
+
+        ctx.putImageData(dataDrink, 0, 0);
+
+        setTimeout(() => {
+            // 3 sips: each sip removes 1/3 of the total
+            beerLevel = Math.max(0, beerLevel - (1/3));
+            isAnimating = false;
+            renderBeerLevel(dataIdle);
+        }, 600);
+    }
+
+    function playPourAnimation() {
+        if (isAnimating) return;
+        isAnimating = true;
+
+        stopAllAudio();
+        audioHosgeldiniz.currentTime = 0;
+        audioHosgeldiniz.play().catch(e => console.log(e));
+
+        ctx.putImageData(dataPour, 0, 0);
+
+        const fillIncrement = (1.0 - beerLevel) / 10;
+        const pourInterval = setInterval(() => { beerLevel = Math.min(1.0, beerLevel + fillIncrement); }, 100);
+
+        setTimeout(() => {
+            clearInterval(pourInterval);
+            beerLevel   = 1.0;
+            isAnimating = false;
+            renderBeerLevel(dataIdle);
+        }, 1000);
+    }
+
+    function playAngryAnimation() {
+        stopAllAudio();
+        audioKizginlik.currentTime = 0;
+        audioKizginlik.play().catch(e => console.log(e));
+    }
+
+    function playSadAnimation() {
+        stopAllAudio();
+        audioOlumsuz.currentTime = 0;
+        audioOlumsuz.play().catch(e => console.log(e));
+    }
+
+    // --- CLICK / TOUCH HANDLER ---
+    function handleInteraction(e) {
+        if (e.cancelable && e.type === 'touchstart') e.preventDefault();
+
+        const pos = getCanvasPos(e);
+        if (pos.x < 0 || pos.y < 0 || pos.x > canvas.width || pos.y > canvas.height) return;
+        if (isAnimating) return;
+
+        // Zone detection
+        const isFace   = pos.y < canvas.height * 0.45 && pos.x > canvas.width * 0.35 && pos.x < canvas.width * 0.65;
+        const isBottle = !isFace && pos.x > canvas.width / 2;
+        const isMug    = !isFace && !isBottle;
+
+        if (isFace) {
+            playFaceSound();
+        } else if (isMug) {
+            if (beerLevel > 0.01) {
+                playDrinkAnimation();
+            } else {
+                playSadAnimation();
+            }
+        } else if (isBottle) {
+            if (beerLevel < 0.99) {
+                playPourAnimation();
+            } else {
+                playAngryAnimation();
+            }
+        }
+    }
+
+    canvas.addEventListener('click',      handleInteraction);
+    canvas.addEventListener('touchstart', handleInteraction, { passive: false });
+</script>
+</body>
+</html>
