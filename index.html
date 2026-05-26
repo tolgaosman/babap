@@ -117,6 +117,9 @@
     // --- TALKING ANIMATION STATE ---
     let talkState = false;
     let talkTimer = 0;
+    // Mouth stays open for ~220ms (13 frames @60fps), closed for ~110ms (7 frames)
+    const MOUTH_OPEN_FRAMES  = 13;
+    const MOUTH_CLOSE_FRAMES = 7;
 
     function removeMagenta(imgEl) {
         const tmp = document.createElement('canvas');
@@ -257,7 +260,9 @@
 
             if (talking) {
                 talkTimer++;
-                if (talkTimer > 4) {
+                // Use different thresholds for open vs closed for natural speech rhythm
+                const threshold = talkState ? MOUTH_OPEN_FRAMES : MOUTH_CLOSE_FRAMES;
+                if (talkTimer >= threshold) {
                     talkState = !talkState;
                     talkTimer = 0;
                     needsUpdate = true;
